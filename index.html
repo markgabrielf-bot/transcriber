@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<!--
+  Free Audio Transcriber
+  Copyright (c) 2026 Mark Gabriel Francisco
+  Released under the MIT License. Free to use, copy, modify and share.
+  Speech recognition: OpenAI Whisper (MIT) via Transformers.js by Hugging Face (Apache-2.0).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Free Audio Transcriber | Audio and Video to Text</title>
+<meta name="description" content="Free, open-source audio and video to text transcriber. Runs Whisper AI in your browser. No sign up, no limits, no uploads. Export .txt or .srt captions.">
+<meta name="theme-color" content="#00a86b">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Free Audio Transcriber">
+<meta property="og:description" content="Turn audio and video into text for free. Private, no sign up, works with English, Tagalog and more. Exports SRT captions.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2300a86b'/%3E%3Cg fill='%23fff'%3E%3Crect x='12' y='26' width='5' height='12' rx='2.5'/%3E%3Crect x='21' y='18' width='5' height='28' rx='2.5'/%3E%3Crect x='30' y='22' width='5' height='20' rx='2.5'/%3E%3Crect x='39' y='14' width='5' height='36' rx='2.5'/%3E%3Crect x='48' y='24' width='5' height='16' rx='2.5'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:light dark;--bg:light-dark(#ffffff,#04140d);--ink:light-dark(#0b0b0b,#eaf5ef);--muted:light-dark(#52605a,#9fb3a8);--em:#00a86b;--pink:light-dark(#ffd6e0,#3a1e27);--panel:light-dark(#f3f7f5,#0b2219);--line:light-dark(#dbe5df,#1d3a2d)}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Schibsted Grotesk",system-ui,sans-serif;overflow-x:clip}
+.wrap{max-width:1000px;margin:0 auto;padding:clamp(20px,4vw,48px) max(4vw,16px)}
+h1{font-weight:800;font-size:clamp(30px,5vw,46px);line-height:1.05;margin:0 0 6px;text-wrap:balance}
+.sub{color:var(--muted);margin:0 0 24px}
+.grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:16px}
+@media(max-width:700px){.grid{grid-template-columns:minmax(0,1fr)}}
+.drop{background:var(--em);color:#fff;border-radius:14px;padding:28px;min-height:200px;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:10px;cursor:pointer;border:3px dashed transparent;transition:border-color .15s}
+.drop.over{border-color:#fff}
+.drop b{font-size:24px;line-height:1.1}
+.drop small{opacity:.9}
+.fname{font-weight:600;background:rgba(0,0,0,.18);padding:4px 10px;border-radius:8px;overflow-wrap:anywhere}
+.opts{background:var(--pink);border-radius:14px;padding:20px;display:grid;gap:12px}
+label{font-weight:600;font-size:14px;display:grid;gap:4px}
+select,button{font:inherit;font-size:16px;min-height:44px;border-radius:10px}
+select{padding:0 10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+button{border:0;padding:0 18px;font-weight:600;cursor:pointer;background:var(--ink);color:var(--bg)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+button:focus-visible,select:focus-visible,.drop:focus-visible{outline:3px solid var(--em);outline-offset:2px}
+.status{margin:18px 0 8px;font-weight:600;min-height:1.5em}
+.bar{height:8px;background:var(--panel);border-radius:99px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--em);transition:width .2s}
+.out{margin-top:20px;background:var(--panel);border-radius:14px;padding:18px}
+.tools{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center}
+.tabs{display:flex;gap:4px;margin-right:auto}
+.tabs button{background:transparent;color:var(--muted);border:1px solid var(--line)}
+.tabs button.on{background:var(--em);color:#fff;border-color:var(--em)}
+textarea{width:100%;min-height:280px;font:16px/1.6 inherit;font-family:inherit;padding:14px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);resize:vertical}
+.seg{display:grid;grid-template-columns:7.5em minmax(0,1fr);gap:10px;padding:6px 0;border-bottom:1px solid var(--line)}
+.seg time{color:var(--em);font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.segs{max-height:420px;overflow:auto;background:var(--bg);border-radius:10px;padding:6px 14px;border:1px solid var(--line)}
+.empty{color:var(--muted);padding:30px 0;text-align:center}
+.note{color:var(--muted);font-size:14px;margin-top:18px}
+.hide{display:none}
+.faq{margin-top:36px;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:16px}
+.faq h2{grid-column:1/-1;font-size:28px;line-height:1.1;margin:0}
+.faq div{border-top:3px solid var(--em);padding-top:10px}
+.faq h3{font-size:17px;margin:0 0 4px}
+.faq p{margin:0;color:var(--muted);font-size:15px}
+footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:14px;display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:space-between}
+footer a{color:var(--em)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Audio to text, free and offline</h1>
+  <p class="sub">Runs OpenAI's Whisper inside your browser. No sign up, no limits, and your file never leaves your computer.</p>
+
+  <div class="grid">
+    <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose audio or video file">
+      <b>Drop audio or video here</b>
+      <small>MP3, WAV, M4A, OGG, MP4, MOV, WEBM. Or click to browse.</small>
+      <span class="fname hide" id="fname"></span>
+      <input type="file" id="file" accept="audio/*,video/*" hidden>
+    </div>
+    <div class="opts">
+      <label>Language
+        <select id="lang">
+          <option value="">Auto detect</option>
+          <option value="english">English</option>
+          <option value="tagalog">Tagalog / Taglish</option>
+          <option value="cebuano">Cebuano</option>
+          <option value="japanese">Japanese</option>
+          <option value="korean">Korean</option>
+          <option value="spanish">Spanish</option>
+        </select>
+      </label>
+      <label>Quality
+        <select id="model">
+          <option value="onnx-community/whisper-tiny">Fastest (tiny, ~40 MB)</option>
+          <option value="onnx-community/whisper-base" selected>Balanced (base, ~80 MB)</option>
+          <option value="onnx-community/whisper-small">Most accurate (small, ~250 MB)</option>
+        </select>
+      </label>
+      <button id="go" disabled>Transcribe</button>
+    </div>
+  </div>
+
+  <div class="status" id="status">Pick a file to start.</div>
+  <div class="bar"><i id="bar"></i></div>
+
+  <div class="out">
+    <div class="tools">
+      <div class="tabs">
+        <button id="tText" class="on">Text</button>
+        <button id="tTime">With timestamps</button>
+      </div>
+      <button class="ghost" id="copy" disabled>Copy</button>
+      <button class="ghost" id="dTxt" disabled>Save .txt</button>
+      <button class="ghost" id="dSrt" disabled>Save .srt</button>
+    </div>
+    <textarea id="text" placeholder="Your transcript will appear here. You can edit it before saving."></textarea>
+    <div class="segs hide" id="segs"><div class="empty">Timestamps appear after transcribing.</div></div>
+  </div>
+
+  <p class="note">First run downloads the model once, then it is cached by your browser so next time is instant. Uses your GPU (WebGPU) when available for big speed gains; works best in Chrome or Edge. The .srt file drops straight into Premiere Pro, DaVinci Resolve, or CapCut as captions.</p>
+
+  <section class="faq">
+    <h2>How it works</h2>
+    <div><h3>Is it really free?</h3><p>Yes. No account, no credits, no watermark, no file size cap. The code is open source under the MIT License.</p></div>
+    <div><h3>Where does my audio go?</h3><p>Nowhere. The AI model downloads to your browser and transcribes on your own device. Your file is never uploaded.</p></div>
+    <div><h3>Which device works best?</h3><p>A laptop or desktop with Chrome or Edge. Phones work for short clips but can be slow or run out of memory on long files.</p></div>
+    <div><h3>How accurate is it?</h3><p>Very good for clear speech. For Taglish or noisy recordings, choose "Most accurate" and set the language instead of auto detect.</p></div>
+    <div><h3>Can I use it offline?</h3><p>After the first run, the model is cached. You still need to open the page online, but transcribing itself runs locally.</p></div>
+    <div><h3>Can I copy this tool?</h3><p>Please do. Use it, host it, change it, share it. Just keep the license note in the code.</p></div>
+  </section>
+
+  <footer>
+    <span>Free and open source (MIT). Made by Mark Gabriel Francisco.</span>
+    <span>Powered by <a href="https://github.com/openai/whisper" rel="noopener">Whisper</a> and <a href="https://github.com/huggingface/transformers.js" rel="noopener">Transformers.js</a></span>
+  </footer>
+</div>
+
+<script>
+{
+const $ = id => document.getElementById(id);
+const workerSrc = `
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.1';
+env.allowLocalModels = false;
+let asr = null, key = '';
+async function load(model, device){
+  const dtype = device === 'webgpu' ? { encoder_model:'fp32', decoder_model_merged:'q4' } : 'q8';
+  return pipeline('automatic-speech-recognition', model, { device, dtype,
+    progress_callback: p => self.postMessage({ type:'load', p }) });
+}
+self.onmessage = async e => {
+  const { audio, model, lang } = e.data; let { device } = e.data;
+  try {
+    if (!asr || key !== model + device) {
+      try { asr = await load(model, device); }
+      catch (err) { if (device !== 'webgpu') throw err; device = 'wasm'; self.postMessage({ type:'fallback' }); asr = await load(model, device); }
+      key = model + device;
+    }
+    self.postMessage({ type:'start', device });
+    const opts = { chunk_length_s:30, stride_length_s:5, return_timestamps:true, task:'transcribe' };
+    if (lang) opts.language = lang;
+    const out = await asr(audio, opts);
+    self.postMessage({ type:'done', out });
+  } catch (err) { self.postMessage({ type:'error', msg: String(err && err.message || err) }); }
+};`;
+const worker = new Worker(URL.createObjectURL(new Blob([workerSrc], { type:'text/javascript' })), { type:'module' });
+
+let file = null, chunks = [], timer = null, t0 = 0, files = {};
+const status = m => $('status').textContent = m;
+const bar = v => $('bar').style.width = v + '%';
+
+function pick(f){
+  if (!f) return;
+  file = f;
+  $('fname').textContent = f.name + ' (' + (f.size/1048576).toFixed(1) + ' MB)';
+  $('fname').classList.remove('hide');
+  $('go').disabled = false;
+  status('Ready. Hit Transcribe.'); bar(0);
+}
+$('drop').onclick = () => $('file').click();
+$('drop').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } };
+$('file').onchange = e => pick(e.target.files[0]);
+['dragenter','dragover'].forEach(ev => $('drop').addEventListener(ev, e => { e.preventDefault(); $('drop').classList.add('over'); }));
+['dragleave','drop'].forEach(ev => $('drop').addEventListener(ev, e => { e.preventDefault(); $('drop').classList.remove('over'); }));
+$('drop').addEventListener('drop', e => pick(e.dataTransfer.files[0]));
+
+async function decode(f){
+  const ctx = new AudioContext({ sampleRate:16000 });
+  const buf = await ctx.decodeAudioData(await f.arrayBuffer());
+  let data = buf.getChannelData(0);
+  if (buf.numberOfChannels > 1) {
+    const r = buf.getChannelData(1), m = new Float32Array(data.length);
+    for (let i = 0; i < data.length; i++) m[i] = (data[i] + r[i]) / 2;
+    data = m;
+  }
+  ctx.close();
+  return { data, dur: buf.duration };
+}
+
+const fmt = (s, srt) => {
+  s = Math.max(0, s || 0);
+  const h = Math.floor(s/3600), m = Math.floor(s%3600/60), sec = Math.floor(s%60), ms = Math.round((s%1)*1000);
+  const p = (n, l=2) => String(n).padStart(l, '0');
+  return srt ? `${p(h)}:${p(m)}:${p(sec)},${p(ms,3)}` : (h ? h + ':' : '') + p(m) + ':' + p(sec);
+};
+
+$('go').onclick = async () => {
+  if (!file) return;
+  $('go').disabled = true; files = {};
+  status('Reading audio...'); bar(3);
+  let audio;
+  try { audio = await decode(file); }
+  catch { status('Could not read that file. Try MP3, WAV, M4A or MP4.'); $('go').disabled = false; return; }
+  let device = 'wasm';
+  try { if (navigator.gpu && await navigator.gpu.requestAdapter()) device = 'webgpu'; } catch {}
+  status('Loading AI model (first time only)...');
+  worker.postMessage({ audio: audio.data, model: $('model').value, lang: $('lang').value, device }, [audio.data.buffer]);
+  $('go').dataset.dur = audio.dur;
+};
+
+worker.onmessage = ({ data: d }) => {
+  if (d.type === 'load' && d.p.status === 'progress' && d.p.total > 1e6) {
+    files[d.p.file] = [d.p.loaded, d.p.total];
+    let l = 0, t = 0; for (const k in files) { l += files[k][0]; t += files[k][1]; }
+    bar(5 + 45 * l / t);
+    status(`Downloading model... ${(l/1048576).toFixed(0)} / ${(t/1048576).toFixed(0)} MB`);
+  } else if (d.type === 'fallback') {
+    status('GPU not supported here, switching to CPU mode...');
+  } else if (d.type === 'start') {
+    const dur = +$('go').dataset.dur;
+    t0 = performance.now(); bar(55);
+    const mode = d.device === 'webgpu' ? 'GPU' : 'CPU';
+    timer = setInterval(() => {
+      const el = (performance.now() - t0) / 1000;
+      status(`Transcribing ${fmt(dur)} of audio on ${mode}... ${el.toFixed(0)}s`);
+      bar(Math.min(95, 55 + el * 2));
+    }, 500);
+  } else if (d.type === 'done') {
+    clearInterval(timer); bar(100);
+    const el = ((performance.now() - t0) / 1000).toFixed(1);
+    chunks = (d.out.chunks || []).filter(c => c.text.trim());
+    $('text').value = (d.out.text || '').trim();
+    renderSegs();
+    status(`Done in ${el}s. Edit below, then copy or save.`);
+    ['copy','dTxt','dSrt'].forEach(id => $(id).disabled = false);
+    $('go').disabled = false;
+  } else if (d.type === 'error') {
+    clearInterval(timer); bar(0);
+    status('Something went wrong: ' + d.msg + '. Check your internet for the first model download.');
+    $('go').disabled = false;
+  }
+};
+
+function renderSegs(){
+  const box = $('segs'); box.innerHTML = '';
+  if (!chunks.length) { box.innerHTML = '<div class="empty">No timestamps returned.</div>'; return; }
+  for (const c of chunks) {
+    const row = document.createElement('div'); row.className = 'seg';
+    const t = document.createElement('time'); t.textContent = fmt(c.timestamp[0]) + ' – ' + fmt(c.timestamp[1] ?? c.timestamp[0]);
+    const s = document.createElement('span'); s.textContent = c.text.trim();
+    row.append(t, s); box.append(row);
+  }
+}
+function srt(){
+  return chunks.map((c, i) => {
+    const a = c.timestamp[0], b = c.timestamp[1] ?? a + 3;
+    return `${i+1}\n${fmt(a,true)} --> ${fmt(b,true)}\n${c.text.trim()}\n`;
+  }).join('\n');
+}
+function save(text, ext){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type:'text/plain;charset=utf-8' }));
+  a.download = (file ? file.name.replace(/\.[^.]+$/, '') : 'transcript') + ext;
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+$('dTxt').onclick = () => save($('text').value, '.txt');
+$('dSrt').onclick = () => save(srt(), '.srt');
+$('copy').onclick = async () => {
+  try { await navigator.clipboard.writeText($('text').value); $('copy').textContent = 'Copied!'; }
+  catch { $('text').select(); $('copy').textContent = 'Press Ctrl+C'; }
+  setTimeout(() => $('copy').textContent = 'Copy', 1500);
+};
+$('tText').onclick = () => { $('tText').classList.add('on'); $('tTime').classList.remove('on'); $('text').classList.remove('hide'); $('segs').classList.add('hide'); };
+$('tTime').onclick = () => { $('tTime').classList.add('on'); $('tText').classList.remove('on'); $('segs').classList.remove('hide'); $('text').classList.add('hide'); };
+}
+</script>
+</body>
+</html>
