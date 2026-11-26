@@ -17,6 +17,20 @@
 <meta property="og:description" content="Turn audio and video into text for free. Private, no sign up, works with English, Tagalog and more. Exports SRT captions.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2300a86b'/%3E%3Cg fill='%23fff'%3E%3Crect x='12' y='26' width='5' height='12' rx='2.5'/%3E%3Crect x='21' y='18' width='5' height='28' rx='2.5'/%3E%3Crect x='30' y='22' width='5' height='20' rx='2.5'/%3E%3Crect x='39' y='14' width='5' height='36' rx='2.5'/%3E%3Crect x='48' y='24' width='5' height='16' rx='2.5'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
+<script>
+/* Turns on cross-origin isolation so the AI can use all CPU cores. Needs coi-sw.js beside this file and HTTPS. */
+(function(){
+  try {
+    if (window.crossOriginIsolated || !window.isSecureContext || location.protocol !== 'https:' || !('serviceWorker' in navigator)) return;
+    if (!(window.HTMLIFrameElement && 'credentialless' in HTMLIFrameElement.prototype)) return;
+    navigator.serviceWorker.register('coi-sw.js').then(function(){
+      return navigator.serviceWorker.ready;
+    }).then(function(){
+      if (!sessionStorage.getItem('coiReloaded')) { sessionStorage.setItem('coiReloaded','1'); location.reload(); }
+    }).catch(function(){});
+  } catch (e) {}
+})();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
@@ -56,6 +70,9 @@ textarea{width:100%;min-height:280px;font:16px/1.6 inherit;font-family:inherit;p
 .empty{color:var(--muted);padding:30px 0;text-align:center}
 .note{color:var(--muted);font-size:14px;margin-top:18px}
 .hide{display:none}
+.chk{display:flex;align-items:center;gap:10px;font-weight:600;min-height:44px;cursor:pointer}
+.chk input{width:20px;height:20px;accent-color:var(--em)}
+.speed{color:var(--muted);font-size:14px;margin-top:6px;min-height:1.4em}
 .faq{margin-top:36px;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:16px}
 .faq h2{grid-column:1/-1;font-size:28px;line-height:1.1;margin:0}
 .faq div{border-top:3px solid var(--em);padding-top:10px}
@@ -73,7 +90,7 @@ footer a{color:var(--em)}
   <div class="grid">
     <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose audio or video file">
       <b>Drop audio or video here</b>
-      <small>MP3, WAV, M4A, OGG, MP4, MOV, WEBM. Or click to browse.</small>
+      <small>MP3, WAV, M4A, OGG, MP4, MOV, WEBM. Long MP3s are handled in parts.</small>
       <span class="fname hide" id="fname"></span>
       <input type="file" id="file" accept="audio/*,video/*" hidden>
     </div>
@@ -96,12 +113,14 @@ footer a{color:var(--em)}
           <option value="onnx-community/whisper-small">Most accurate (small, ~250 MB)</option>
         </select>
       </label>
+      <label class="chk"><input type="checkbox" id="skip" checked> Skip silent parts (faster)</label>
       <button id="go" disabled>Transcribe</button>
     </div>
   </div>
 
   <div class="status" id="status">Pick a file to start.</div>
   <div class="bar"><i id="bar"></i></div>
+  <div class="speed" id="speed"></div>
 
   <div class="out">
     <div class="tools">
@@ -125,6 +144,7 @@ footer a{color:var(--em)}
     <div><h3>Where does my audio go?</h3><p>Nowhere. The AI model downloads to your browser and transcribes on your own device. Your file is never uploaded.</p></div>
     <div><h3>Which device works best?</h3><p>A laptop or desktop with Chrome or Edge. Phones work for short clips but can be slow or run out of memory on long files.</p></div>
     <div><h3>How accurate is it?</h3><p>Very good for clear speech. For Taglish or noisy recordings, choose "Most accurate" and set the language instead of auto detect.</p></div>
+    <div><h3>Can it handle long recordings?</h3><p>Yes. Long MP3s are read and transcribed part by part, and the text appears as it goes. You can stop anytime and keep what is done. For long WAV or video files, convert to MP3 first.</p></div>
     <div><h3>Can I use it offline?</h3><p>After the first run, the model is cached. You still need to open the page online, but transcribing itself runs locally.</p></div>
     <div><h3>Can I copy this tool?</h3><p>Please do. Use it, host it, change it, share it. Just keep the license note in the code.</p></div>
   </section>
@@ -141,6 +161,7 @@ const $ = id => document.getElementById(id);
 const workerSrc = `
 import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.1';
 env.allowLocalModels = false;
+if (self.crossOriginIsolated) env.backends.onnx.wasm.numThreads = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
 let asr = null, key = '';
 async function load(model, device){
   const dtype = device === 'webgpu' ? { encoder_model:'fp32', decoder_model_merged:'q4' } : 'q8';
@@ -148,30 +169,33 @@ async function load(model, device){
     progress_callback: p => self.postMessage({ type:'load', p }) });
 }
 self.onmessage = async e => {
-  const { audio, model, lang } = e.data; let { device } = e.data;
+  const { id, audio, model, lang } = e.data; let { device } = e.data;
   try {
     if (!asr || key !== model + device) {
       try { asr = await load(model, device); }
       catch (err) { if (device !== 'webgpu') throw err; device = 'wasm'; self.postMessage({ type:'fallback' }); asr = await load(model, device); }
       key = model + device;
     }
-    self.postMessage({ type:'start', device });
-    const opts = { chunk_length_s:30, stride_length_s:5, return_timestamps:true, task:'transcribe' };
+    self.postMessage({ type:'start', id, device, threads: device === 'webgpu' ? 0 : (self.crossOriginIsolated ? env.backends.onnx.wasm.numThreads : 1) });
+    const opts = { chunk_length_s:30, stride_length_s:3, return_timestamps:true, task:'transcribe' };
     if (lang) opts.language = lang;
     const out = await asr(audio, opts);
-    self.postMessage({ type:'done', out });
-  } catch (err) { self.postMessage({ type:'error', msg: String(err && err.message || err) }); }
+    self.postMessage({ type:'done', id, out, device });
+  } catch (err) { self.postMessage({ type:'error', id, msg: String(err && err.message || err) }); }
 };`;
 const worker = new Worker(URL.createObjectURL(new Blob([workerSrc], { type:'text/javascript' })), { type:'module' });
 
-let file = null, chunks = [], timer = null, t0 = 0, files = {};
+const SLICE = 6 * 1048576;          // MP3s bigger than this are read in parts
+let file = null, chunks = [], texts = [], running = false, stopReq = false;
+let threads = 1, jobs = {}, jobId = 0, files = {}, partInfo = '', timer = null, t0 = 0, devUsed = 'wasm';
 const status = m => $('status').textContent = m;
 const bar = v => $('bar').style.width = v + '%';
+const mb = n => (n / 1048576).toFixed(1) + ' MB';
 
 function pick(f){
-  if (!f) return;
+  if (!f || running) return;
   file = f;
-  $('fname').textContent = f.name + ' (' + (f.size/1048576).toFixed(1) + ' MB)';
+  $('fname').textContent = f.name + ' (' + mb(f.size) + ')';
   $('fname').classList.remove('hide');
   $('go').disabled = false;
   status('Ready. Hit Transcribe.'); bar(0);
@@ -183,88 +207,201 @@ $('file').onchange = e => pick(e.target.files[0]);
 ['dragleave','drop'].forEach(ev => $('drop').addEventListener(ev, e => { e.preventDefault(); $('drop').classList.remove('over'); }));
 $('drop').addEventListener('drop', e => pick(e.dataTransfer.files[0]));
 
-async function decode(f){
-  const ctx = new AudioContext({ sampleRate:16000 });
-  const buf = await ctx.decodeAudioData(await f.arrayBuffer());
-  let data = buf.getChannelData(0);
-  if (buf.numberOfChannels > 1) {
-    const r = buf.getChannelData(1), m = new Float32Array(data.length);
-    for (let i = 0; i < data.length; i++) m[i] = (data[i] + r[i]) / 2;
-    data = m;
+function resampleJS(buf){
+  const ch = buf.numberOfChannels, n = buf.length, mono = new Float32Array(n);
+  for (let c = 0; c < ch; c++) { const d = buf.getChannelData(c); for (let i = 0; i < n; i++) mono[i] += d[i] / ch; }
+  if (buf.sampleRate === 16000) return mono;
+  const ratio = buf.sampleRate / 16000, out = new Float32Array(Math.floor(n / ratio));
+  for (let i = 0; i < out.length; i++) {
+    const a = Math.floor(i * ratio), b = Math.min(n - 1, Math.floor((i + 1) * ratio));
+    let sum = 0; for (let j = a; j <= b; j++) sum += mono[j];
+    out[i] = sum / (b - a + 1);
   }
-  ctx.close();
+  return out;
+}
+async function decode(blob){
+  const raw = await blob.arrayBuffer();
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const ctx = new AC();
+  let buf;
+  try {
+    buf = await new Promise((res, rej) => {
+      const p = ctx.decodeAudioData(raw, res, rej);
+      if (p && p.then) p.then(res, rej);
+    });
+  } finally { try { ctx.close(); } catch {} }
+  let data;
+  try {
+    const off = new OfflineAudioContext(1, Math.ceil(buf.duration * 16000), 16000);
+    const src = off.createBufferSource(); src.buffer = buf; src.connect(off.destination); src.start();
+    data = (await off.startRendering()).getChannelData(0);
+  } catch { data = resampleJS(buf); }
   return { data, dur: buf.duration };
 }
 
 const fmt = (s, srt) => {
   s = Math.max(0, s || 0);
-  const h = Math.floor(s/3600), m = Math.floor(s%3600/60), sec = Math.floor(s%60), ms = Math.round((s%1)*1000);
+  const h = Math.floor(s/3600), m = Math.floor(s%3600/60), sec = Math.floor(s%60), ms = Math.round((s%1)*1000) % 1000;
   const p = (n, l=2) => String(n).padStart(l, '0');
   return srt ? `${p(h)}:${p(m)}:${p(sec)},${p(ms,3)}` : (h ? h + ':' : '') + p(m) + ':' + p(sec);
 };
 
-$('go').onclick = async () => {
-  if (!file) return;
-  $('go').disabled = true; files = {};
-  status('Reading audio...'); bar(3);
-  let audio;
-  try { audio = await decode(file); }
-  catch { status('Could not read that file. Try MP3, WAV, M4A or MP4.'); $('go').disabled = false; return; }
-  let device = 'wasm';
-  try { if (navigator.gpu && await navigator.gpu.requestAdapter()) device = 'webgpu'; } catch {}
-  status('Loading AI model (first time only)...');
-  worker.postMessage({ audio: audio.data, model: $('model').value, lang: $('lang').value, device }, [audio.data.buffer]);
-  $('go').dataset.dur = audio.dur;
-};
+function transcribe(audio, device){
+  return new Promise((resolve, reject) => {
+    const id = ++jobId; jobs[id] = { resolve, reject };
+    worker.postMessage({ id, audio, model: $('model').value, lang: $('lang').value, device }, [audio.buffer]);
+  });
+}
 
 worker.onmessage = ({ data: d }) => {
   if (d.type === 'load' && d.p.status === 'progress' && d.p.total > 1e6) {
     files[d.p.file] = [d.p.loaded, d.p.total];
     let l = 0, t = 0; for (const k in files) { l += files[k][0]; t += files[k][1]; }
-    bar(5 + 45 * l / t);
-    status(`Downloading model... ${(l/1048576).toFixed(0)} / ${(t/1048576).toFixed(0)} MB`);
+    status(`Downloading AI model (first time only)... ${(l/1048576).toFixed(0)} / ${(t/1048576).toFixed(0)} MB`);
   } else if (d.type === 'fallback') {
     status('GPU not supported here, switching to CPU mode...');
   } else if (d.type === 'start') {
-    const dur = +$('go').dataset.dur;
-    t0 = performance.now(); bar(55);
-    const mode = d.device === 'webgpu' ? 'GPU' : 'CPU';
+    devUsed = d.device; threads = d.threads; t0 = performance.now();
+    clearInterval(timer);
     timer = setInterval(() => {
-      const el = (performance.now() - t0) / 1000;
-      status(`Transcribing ${fmt(dur)} of audio on ${mode}... ${el.toFixed(0)}s`);
-      bar(Math.min(95, 55 + el * 2));
+      const el = ((performance.now() - t0) / 1000).toFixed(0);
+      status(`${stopReq ? 'Finishing this part, then stopping... ' : ''}Transcribing ${partInfo} on ${devUsed === 'webgpu' ? 'GPU' : 'CPU (' + threads + (threads === 1 ? ' core' : ' cores') + ')'}... ${el}s`);
     }, 500);
-  } else if (d.type === 'done') {
-    clearInterval(timer); bar(100);
-    const el = ((performance.now() - t0) / 1000).toFixed(1);
-    chunks = (d.out.chunks || []).filter(c => c.text.trim());
-    $('text').value = (d.out.text || '').trim();
-    renderSegs();
-    status(`Done in ${el}s. Edit below, then copy or save.`);
-    ['copy','dTxt','dSrt'].forEach(id => $(id).disabled = false);
-    $('go').disabled = false;
-  } else if (d.type === 'error') {
-    clearInterval(timer); bar(0);
-    status('Something went wrong: ' + d.msg + '. Check your internet for the first model download.');
-    $('go').disabled = false;
+  } else if (d.type === 'done' || d.type === 'error') {
+    clearInterval(timer);
+    const j = jobs[d.id]; delete jobs[d.id];
+    if (!j) return;
+    d.type === 'done' ? j.resolve(d.out) : j.reject(new Error(d.msg));
   }
+};
+
+// Finds speech, drops long silences, and remembers where each kept piece came from.
+function speechMap(data){
+  const F = 1600, n = Math.floor(data.length / F);
+  if (n < 50) return null;
+  const rms = new Float32Array(n);
+  for (let i = 0; i < n; i++) { let s = 0; for (let j = i * F; j < (i + 1) * F; j++) s += data[j] * data[j]; rms[i] = Math.sqrt(s / F); }
+  const sorted = Float32Array.from(rms).sort();
+  const floor = sorted[Math.floor(n * 0.1)], loud = sorted[Math.floor(n * 0.9)];
+  const thr = Math.max(0.003, Math.min(floor * 3, loud * 0.15));
+  const keep = new Uint8Array(n), PAD = 4, MINSIL = 15;
+  for (let i = 0; i < n; i++) if (rms[i] > thr) for (let k = Math.max(0, i - PAD); k <= Math.min(n - 1, i + PAD); k++) keep[k] = 1;
+  // fill short gaps so only silences of 1.5s+ are removed
+  let i = 0;
+  while (i < n) { if (!keep[i]) { let j = i; while (j < n && !keep[j]) j++; if (j - i < MINSIL && i > 0 && j < n) keep.fill(1, i, j); i = j; } else i++; }
+  const segs = []; i = 0;
+  while (i < n) { if (keep[i]) { let j = i; while (j < n && keep[j]) j++; segs.push([i * F, j === n ? data.length : j * F]); i = j; } else i++; }
+  const keptLen = segs.reduce((t, g) => t + g[1] - g[0], 0);
+  if (keptLen > data.length * 0.92) return null;            // not worth it
+  const GAP = 4000, out = new Float32Array(keptLen + GAP * Math.max(0, segs.length - 1)), map = [];
+  let pos = 0;
+  segs.forEach((g, k) => { if (k) pos += GAP; map.push({ cs: pos / 16000, os: g[0] / 16000, len: (g[1] - g[0]) / 16000 }); out.set(data.subarray(g[0], g[1]), pos); pos += g[1] - g[0]; });
+  return { audio: out, map, saved: (data.length - out.length) / 16000 };
+}
+const remap = (t, map) => {
+  if (!map) return t;
+  let m = map[0];
+  for (const x of map) { if (x.cs <= t) m = x; else break; }
+  return m.os + Math.min(Math.max(0, t - m.cs), m.len);
+};
+
+function addResult(out, offset, dur, map){
+  const t = (out.text || '').trim();
+  if (t) texts.push(t);
+  const cs = (out.chunks || []).filter(c => c.text.trim());
+  cs.forEach((c, i) => {
+    const a0 = c.timestamp[0] || 0;
+    let b0 = c.timestamp[1];
+    if (b0 == null) b0 = cs[i+1] ? cs[i+1].timestamp[0] : a0 + 3;
+    const a = remap(a0, map) + offset, b = Math.min(remap(b0, map) + offset, offset + dur);
+    chunks.push({ a, b: Math.max(b, a + 0.5), text: c.text.trim() });
+  });
+  $('text').value = texts.join(' ');
+  $('text').scrollTop = $('text').scrollHeight;
+  renderSegs();
+}
+
+function setRunning(on){
+  running = on;
+  $('go').textContent = on ? 'Stop' : 'Transcribe';
+  $('go').disabled = false;
+  ['model','lang','skip'].forEach(id => $(id).disabled = on);
+  ['copy','dTxt','dSrt'].forEach(id => $(id).disabled = on || !texts.length);
+}
+
+$('go').onclick = async () => {
+  if (running) { stopReq = true; $('go').disabled = true; $('go').textContent = 'Stopping...'; return; }
+  if (!file) return;
+  chunks = []; texts = []; files = {}; stopReq = false;
+  $('text').value = ''; $('speed').textContent = ''; renderSegs();
+  setRunning(true); bar(2);
+
+  let device = 'wasm';
+  try { if (navigator.gpu && await navigator.gpu.requestAdapter()) device = 'webgpu'; } catch {}
+
+  const isMp3 = /\.mp3$/i.test(file.name) || file.type === 'audio/mpeg';
+  const parts = isMp3 && file.size > SLICE * 1.5 ? Math.ceil(file.size / SLICE) : 1;
+  const readPart = i => decode(parts > 1 ? file.slice(i * SLICE, (i + 1) * SLICE) : file).then(r => ({ r }), err => ({ err }));
+  let offset = 0, skipped = 0, saved = 0, aiTime = 0, next = readPart(0);
+  const started = performance.now();
+
+  for (let i = 0; i < parts && !stopReq; i++) {
+    partInfo = parts > 1 ? `part ${i+1} of ${parts}` : 'audio';
+    status(`Reading ${partInfo}...`);
+    const got = await next;
+    if (i + 1 < parts) next = readPart(i + 1);           // read the next part while this one transcribes
+    if (got.err) {
+      if (parts > 1) { skipped++; continue; }
+      const err = got.err, big = file.size > 80 * 1048576;
+      status(`Could not read that file (${err && (err.name || err.message) || 'unknown error'}). ` +
+        (big ? 'It is very large. Convert it to MP3 first, then try again.' : 'Try re-exporting it as MP3 or WAV, or use Chrome/Edge.'));
+      setRunning(false); bar(0); return;
+    }
+    const { data, dur } = got.r;
+    let audio = data, map = null;
+    if ($('skip').checked) {
+      const sm = speechMap(data);
+      if (sm) { audio = sm.audio; map = sm.map; saved += sm.saved; }
+    }
+    if (map && !map.length) { offset += dur; bar((i + 1) / parts * 100); continue; }   // all silence
+    try {
+      const t1 = performance.now();
+      const out = await transcribe(audio, device);
+      aiTime += (performance.now() - t1) / 1000;
+      addResult(out, offset, dur, map);
+    } catch (err) {
+      status('Something went wrong: ' + err.message + '. The first run needs internet to download the model.');
+      setRunning(false); return;
+    }
+    offset += dur;
+    bar(Math.max(4, (i + 1) / parts * 100));
+    const el = (performance.now() - started) / 1000;
+    $('speed').textContent = `Speed: ${(offset / el).toFixed(1)}x real time` + (saved > 5 ? ` · skipped ${fmt(saved)} of silence` : '') +
+      (parts > 1 && i + 1 < parts ? ` · about ${fmt(el / (i + 1) * (parts - i - 1))} left` : '');
+  }
+
+  const el = (performance.now() - started) / 1000;
+  const took = el > 90 ? (el / 60).toFixed(1) + ' min' : el.toFixed(0) + 's';
+  status((stopReq ? `Stopped. Kept ${fmt(offset)} of transcript.` : `Done. Transcribed ${fmt(offset)} of audio in ${took}.`) +
+    (skipped ? ` ${skipped} part(s) could not be read and were skipped.` : '') + ' Edit below, then copy or save.');
+  $('speed').textContent = `Speed: ${(offset / el).toFixed(1)}x real time` + (saved > 5 ? ` · skipped ${fmt(saved)} of silence` : '');
+  setRunning(false);
 };
 
 function renderSegs(){
   const box = $('segs'); box.innerHTML = '';
-  if (!chunks.length) { box.innerHTML = '<div class="empty">No timestamps returned.</div>'; return; }
+  if (!chunks.length) { box.innerHTML = '<div class="empty">Timestamps appear after transcribing.</div>'; return; }
+  const frag = document.createDocumentFragment();
   for (const c of chunks) {
     const row = document.createElement('div'); row.className = 'seg';
-    const t = document.createElement('time'); t.textContent = fmt(c.timestamp[0]) + ' – ' + fmt(c.timestamp[1] ?? c.timestamp[0]);
-    const s = document.createElement('span'); s.textContent = c.text.trim();
-    row.append(t, s); box.append(row);
+    const t = document.createElement('time'); t.textContent = fmt(c.a) + ' – ' + fmt(c.b);
+    const s = document.createElement('span'); s.textContent = c.text;
+    row.append(t, s); frag.append(row);
   }
+  box.append(frag);
 }
 function srt(){
-  return chunks.map((c, i) => {
-    const a = c.timestamp[0], b = c.timestamp[1] ?? a + 3;
-    return `${i+1}\n${fmt(a,true)} --> ${fmt(b,true)}\n${c.text.trim()}\n`;
-  }).join('\n');
+  return chunks.map((c, i) => `${i+1}\n${fmt(c.a,true)} --> ${fmt(c.b,true)}\n${c.text}\n`).join('\n');
 }
 function save(text, ext){
   const a = document.createElement('a');
